@@ -363,6 +363,7 @@
 ; GCN-O2-SDAG-NEXT:       greedy<vgpr>
 ; GCN-O2-SDAG-NEXT:       amdgpu-nsa-reassign
 ; GCN-O2-SDAG-NEXT:       amdgpu-rewrite-agpr-copy-mfma
+; GCN-O2-SDAG-NEXT:       amdgpu-optimize-vgpr-encoding
 ; GCN-O2-SDAG-NEXT:       virt-reg-rewriter
 ; GCN-O2-SDAG-NEXT:       amdgpu-mark-last-scratch-load
 ; GCN-O2-SDAG-NEXT:       stack-slot-coloring
@@ -557,6 +558,7 @@
 ; GCN-O2-GISEL-NEXT:       greedy<vgpr>
 ; GCN-O2-GISEL-NEXT:       amdgpu-nsa-reassign
 ; GCN-O2-GISEL-NEXT:       amdgpu-rewrite-agpr-copy-mfma
+; GCN-O2-GISEL-NEXT:       amdgpu-optimize-vgpr-encoding
 ; GCN-O2-GISEL-NEXT:       virt-reg-rewriter
 ; GCN-O2-GISEL-NEXT:       amdgpu-mark-last-scratch-load
 ; GCN-O2-GISEL-NEXT:       stack-slot-coloring
@@ -744,6 +746,7 @@
 ; GCN-O3-SDAG-NEXT:       greedy<vgpr>
 ; GCN-O3-SDAG-NEXT:       amdgpu-nsa-reassign
 ; GCN-O3-SDAG-NEXT:       amdgpu-rewrite-agpr-copy-mfma
+; GCN-O3-SDAG-NEXT:       amdgpu-optimize-vgpr-encoding
 ; GCN-O3-SDAG-NEXT:       virt-reg-rewriter
 ; GCN-O3-SDAG-NEXT:       amdgpu-mark-last-scratch-load
 ; GCN-O3-SDAG-NEXT:       stack-slot-coloring
@@ -938,6 +941,7 @@
 ; GCN-O3-GISEL-NEXT:       greedy<vgpr>
 ; GCN-O3-GISEL-NEXT:       amdgpu-nsa-reassign
 ; GCN-O3-GISEL-NEXT:       amdgpu-rewrite-agpr-copy-mfma
+; GCN-O3-GISEL-NEXT:       amdgpu-optimize-vgpr-encoding
 ; GCN-O3-GISEL-NEXT:       virt-reg-rewriter
 ; GCN-O3-GISEL-NEXT:       amdgpu-mark-last-scratch-load
 ; GCN-O3-GISEL-NEXT:       stack-slot-coloring

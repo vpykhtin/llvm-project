@@ -713,3 +713,98 @@ TEST_F(AMDGPUOptimizeVGPREncodingTest, Lo256RegsArePinned) {
   runPass();
   expectAssignmentChanges({{"%moveTo1", 1}}, /*Exhaustive=*/true);
 }
+
+/// Sanity-checks the structural neighbor model exposed via collectMSBGroupHints
+/// (the data a register-allocation hint would consume). Two chained VOP1s:
+/// on the src0 dial the users are (%0, %1); on the dst dial they are (%1, %2).
+/// So %1 neighbors both %0 and %2, while %0 and %2 each have one virtual
+/// neighbor plus block-boundary votes.
+TEST_F(AMDGPUOptimizeVGPREncodingTest, ProxyNeighborsAndBoundaryVotes) {
+  SmallVector<VirtVGPRDef> VirtDefs{
+      {"%0:vgpr_32", 0, 0},
+      {"%1:vgpr_32", 0, 1},
+      {"%2:vgpr_32", 0, 2},
+  };
+  SmallVector<ModeUsingInstr> Instructions{
+      ModeUsingInstr::createVOP1("%1", "%0"),
+      ModeUsingInstr::createVOP1("%2", "%1"),
+  };
+  ASSERT_TRUE(createMIRAndAssign(VirtDefs, {}, {&Instructions}, 3));
+
+  DenseMap<Register, AMDGPU::MSBGroupHints> Hints;
+  AMDGPU::collectMSBGroupHints(*MF, Hints);
+
+  Register V0 = Register::index2VirtReg(0);
+  Register V1 = Register::index2VirtReg(1);
+  Register V2 = Register::index2VirtReg(2);
+
+  auto Count = [](const AMDGPU::MSBGroupHints &H, Register R) {
+    unsigned N = 0;
+    for (Register Nb : H.Neighbors)
+      if (Nb == R)
+        ++N;
+    return N;
+  };
+
+  ASSERT_TRUE(Hints.contains(V0));
+  ASSERT_TRUE(Hints.contains(V1));
+  ASSERT_TRUE(Hints.contains(V2));
+
+  EXPECT_EQ(Hints[V0].Neighbors.size(), 1u);
+  EXPECT_EQ(Count(Hints[V0], V1), 1u);
+  EXPECT_EQ(Hints[V0].DefaultGroupVotes, 1u);
+  EXPECT_FALSE(Hints[V0].Pinned);
+
+  EXPECT_EQ(Hints[V1].Neighbors.size(), 2u);
+  EXPECT_EQ(Count(Hints[V1], V0), 1u);
+  EXPECT_EQ(Count(Hints[V1], V2), 1u);
+  EXPECT_EQ(Hints[V1].DefaultGroupVotes, 2u);
+  EXPECT_FALSE(Hints[V1].Pinned);
+
+  EXPECT_EQ(Hints[V2].Neighbors.size(), 1u);
+  EXPECT_EQ(Count(Hints[V2], V1), 1u);
+  EXPECT_EQ(Hints[V2].DefaultGroupVotes, 1u);
+  EXPECT_FALSE(Hints[V2].Pinned);
+}
+
+/// Checks that physical-register neighbors appear in the model (they are the
+/// known-group anchors a hint relies on) and that lo256 registers are marked
+/// pinned. Chain: $vgpr256 -> %v on the src0 dial; %v -> %lo on the dst dial.
+TEST_F(AMDGPUOptimizeVGPREncodingTest, ProxyPhysNeighborAndPinned) {
+  SmallVector<VirtVGPRDef> VirtDefs{
+      {"%lo:vgpr_32_lo256", 0, 0},
+      {"%v:vgpr_32", 0, 1},
+  };
+  SmallVector<ModeUsingInstr> Instructions{
+      ModeUsingInstr::createVOP1("%v", "$vgpr256"),
+      ModeUsingInstr::createVOP1("%lo:vgpr_32_lo256", "%v"),
+  };
+  ASSERT_TRUE(createMIRAndAssign(VirtDefs, {"$vgpr256"}, {&Instructions}, 2));
+
+  DenseMap<Register, AMDGPU::MSBGroupHints> Hints;
+  AMDGPU::collectMSBGroupHints(*MF, Hints);
+
+  Register VLo = Register::index2VirtReg(0);
+  Register VV = Register::index2VirtReg(1);
+
+  ASSERT_TRUE(Hints.contains(VLo));
+  ASSERT_TRUE(Hints.contains(VV));
+
+  // %lo is confined to the first 256 VGPRs -> pinned; its single neighbor is %v.
+  EXPECT_TRUE(Hints[VLo].Pinned);
+  ASSERT_EQ(Hints[VLo].Neighbors.size(), 1u);
+  EXPECT_EQ(Hints[VLo].Neighbors[0], VV);
+
+  // %v neighbors %lo (virtual) and $vgpr256 (physical): exactly one is physical.
+  EXPECT_FALSE(Hints[VV].Pinned);
+  ASSERT_EQ(Hints[VV].Neighbors.size(), 2u);
+  unsigned NumPhys = 0, NumVLo = 0;
+  for (Register R : Hints[VV].Neighbors) {
+    if (R.isPhysical())
+      ++NumPhys;
+    if (R == VLo)
+      ++NumVLo;
+  }
+  EXPECT_EQ(NumPhys, 1u);
+  EXPECT_EQ(NumVLo, 1u);
+}

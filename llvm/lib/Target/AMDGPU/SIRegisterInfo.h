@@ -214,6 +214,13 @@ public:
   // Pseudo regs are not allowed
   unsigned getHWRegIndex(MCRegister Reg) const;
 
+  // Returns the MSB group (0-3) of a VGPR on subtargets where VGPR MSBs are
+  // provided by MODE (gfx1250+). VGPRs are partitioned into groups of 256, so
+  // the group is the hardware index shifted past the 256-register group size.
+  unsigned getMSBGroupIdx(MCRegister Reg) const {
+    return getHWRegIndex(Reg) >> 8;
+  }
+
   LLVM_READONLY
   const TargetRegisterClass *getVGPRClassForBitWidth(unsigned BitWidth) const;
 
@@ -368,6 +375,14 @@ public:
                              SmallVectorImpl<MCPhysReg> &Hints,
                              const MachineFunction &MF, const VirtRegMap *VRM,
                              const LiveRegMatrix *Matrix) const override;
+
+  // Experimental (gfx1250+): append a soft preference for physical registers in
+  // the MSB group favored by VirtReg's MODE-dial neighbors, to reduce
+  // S_SET_VGPR_MSB instructions. Gated by -amdgpu-vgpr-msb-hints.
+  void addVGPRMSBGroupHints(Register VirtReg, ArrayRef<MCPhysReg> Order,
+                            SmallVectorImpl<MCPhysReg> &Hints,
+                            const MachineFunction &MF,
+                            const VirtRegMap *VRM) const;
 
   const int *getRegUnitPressureSets(MCRegUnit RegUnit) const override;
 

@@ -15,6 +15,7 @@
 
 #include "AMDGPUArgumentUsageInfo.h"
 #include "AMDGPUMachineFunctionInfo.h"
+#include "AMDGPUOptimizeVGPREncoding.h"
 #include "AMDGPUTargetMachine.h"
 #include "GCNSubtarget.h"
 #include "MCTargetDesc/AMDGPUMCTargetDesc.h"
@@ -557,7 +558,16 @@ public:
     bool IsDead = false;
   };
 
+  // Experimental MSB-group register-allocation hints (gfx1250+). Returns a
+  // lazily-built, per-function model mapping each MODE-using virtual register to
+  // its MSB-group neighbors; consumed by SIRegisterInfo::getRegAllocationHints.
+  const DenseMap<Register, AMDGPU::MSBGroupHints> &
+  getMSBGroupHints(const MachineFunction &MF) const;
+
 private:
+  mutable DenseMap<Register, AMDGPU::MSBGroupHints> MSBGroupHintsCache;
+  mutable bool MSBGroupHintsComputed = false;
+
   // To track virtual VGPR + lane index for each subregister of the SGPR spilled
   // to frameindex key during SILowerSGPRSpills pass.
   DenseMap<int, std::vector<SIRegisterInfo::SpilledReg>>

@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "AMDGPUOptimizeVGPREncoding.h"
 #include "AMDGPURegisterBankInfo.h"
 #include "GCNSubtarget.h"
 #include "MCTargetDesc/AMDGPUInstPrinter.h"
@@ -48,6 +49,13 @@ static cl::opt<unsigned> StressAGPRLimit(
 static cl::opt<unsigned> StressSGPRLimit(
     "amdgpu-stress-sgpr", cl::Hidden, cl::init(0),
     cl::desc("Limit SGPRs to N registers by reserving the rest"));
+
+// Experimental: bias VGPR allocation toward the MSB group of a register's
+// MODE-dial neighbors, to reduce S_SET_VGPR_MSB instructions on gfx1250+.
+static cl::opt<bool> EnableVGPRMSBHints(
+    "amdgpu-vgpr-msb-hints", cl::Hidden, cl::init(false),
+    cl::desc("Bias VGPR allocation toward the MSB group of neighbors to reduce "
+             "S_SET_VGPR_MSB instructions (gfx1250+)"));
 
 std::array<std::vector<int16_t>, 32> SIRegisterInfo::RegSplitParts;
 std::array<std::array<uint16_t, 32>, 9> SIRegisterInfo::SubRegFromChannelTable;
@@ -4231,6 +4239,55 @@ const int *SIRegisterInfo::getRegUnitPressureSets(MCRegUnit RegUnit) const {
   return AMDGPUGenRegisterInfo::getRegUnitPressureSets(RegUnit);
 }
 
+// Appends, as a soft preference, the physical registers of \p Order that belong
+// to the MSB group most favored by \p VirtReg's known-group MODE neighbors.
+void SIRegisterInfo::addVGPRMSBGroupHints(
+    Register VirtReg, ArrayRef<MCPhysReg> Order,
+    SmallVectorImpl<MCPhysReg> &Hints, const MachineFunction &MF,
+    const VirtRegMap *VRM) const {
+  const MachineRegisterInfo &MRI = MF.getRegInfo();
+  if (!isVGPRClass(MRI.getRegClass(VirtReg)))
+    return;
+
+  const auto &AllHints =
+      MF.getInfo<SIMachineFunctionInfo>()->getMSBGroupHints(MF);
+  auto It = AllHints.find(VirtReg);
+  if (It == AllHints.end() || It->second.Pinned)
+    return;
+  const AMDGPU::MSBGroupHints &H = It->second;
+
+  // Tally votes per MSB group from neighbors whose group is already known.
+  constexpr unsigned NumGroups = 4;
+  std::array<unsigned, NumGroups> Votes{};
+  Votes[0] += H.DefaultGroupVotes; // Block boundaries pin the default group.
+  for (Register Nb : H.Neighbors) {
+    MCRegister Phys;
+    if (Nb.isPhysical())
+      Phys = Nb.asMCReg();
+    else if (VRM && VRM->hasPhys(Nb))
+      Phys = VRM->getPhys(Nb);
+    else
+      continue; // Group not yet known.
+    unsigned Group = getMSBGroupIdx(Phys);
+    if (Group < NumGroups)
+      ++Votes[Group];
+  }
+
+  // Prefer the group with the most votes; ties fall to the lower-numbered group
+  // (group 0 is the default/boundary group, so this is a sensible default).
+  auto *BestIt = llvm::max_element(Votes);
+  if (*BestIt == 0)
+    return;
+  unsigned Best = std::distance(Votes.begin(), BestIt);
+
+  // Order has no duplicates and is iterated once, so no de-duplication against
+  // Hints is needed; a group register that also happens to be a copy hint would
+  // merely be tried twice, which is harmless.
+  for (MCPhysReg PhysReg : Order)
+    if (getMSBGroupIdx(PhysReg) == Best)
+      Hints.push_back(PhysReg);
+}
+
 bool SIRegisterInfo::getRegAllocationHints(Register VirtReg,
                                            ArrayRef<MCPhysReg> Order,
                                            SmallVectorImpl<MCPhysReg> &Hints,
@@ -4292,9 +4349,15 @@ bool SIRegisterInfo::getRegAllocationHints(Register VirtReg,
     }
     return false;
   }
-  default:
-    return TargetRegisterInfo::getRegAllocationHints(VirtReg, Order, Hints, MF,
-                                                     VRM);
+  default: {
+    bool BaseVal = TargetRegisterInfo::getRegAllocationHints(VirtReg, Order,
+                                                             Hints, MF, VRM);
+    // After the generic (copy) hints, add a soft MSB-group preference so that
+    // coalescing still takes priority over mode-set reduction.
+    if (EnableVGPRMSBHints && ST.has1024AddressableVGPRs())
+      addVGPRMSBGroupHints(VirtReg, Order, Hints, MF, VRM);
+    return BaseVal;
+  }
   }
 }
 

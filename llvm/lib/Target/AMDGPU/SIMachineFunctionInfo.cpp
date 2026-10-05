@@ -832,3 +832,12 @@ bool SIMachineFunctionInfo::mayUseAGPRs(const Function &F) const {
                                       /*OnlyFirstRequired=*/true);
   return MinNumAGPR != 0u;
 }
+
+const DenseMap<Register, AMDGPU::MSBGroupHints> &
+SIMachineFunctionInfo::getMSBGroupHints(const MachineFunction &MF) const {
+  if (!MSBGroupHintsComputed) {
+    AMDGPU::collectMSBGroupHints(MF, MSBGroupHintsCache);
+    MSBGroupHintsComputed = true;
+  }
+  return MSBGroupHintsCache;
+}

@@ -1,0 +1,34 @@
+# RUN: llc -mtriple=amdgcn-amd-amdhsa -mcpu=gfx1250 -run-pass=greedy,virtregrewriter \
+# RUN:   -o - %s | FileCheck -check-prefix=NOHINT %s
+# RUN: llc -mtriple=amdgcn-amd-amdhsa -mcpu=gfx1250 -run-pass=greedy,virtregrewriter \
+# RUN:   -amdgpu-vgpr-msb-hints -o - %s | FileCheck -check-prefix=HINT %s
+
+# %0's only MODE neighbors (on the src0 dial, and the vdst-chain successor) live
+# in MSB group 1 ($vgpr256 / $vgpr257). Without the hint the allocator picks the
+# lowest free register, $vgpr0 (group 0), which forces S_SET_VGPR_MSB
+# instructions around %0's use. With -amdgpu-vgpr-msb-hints the allocator biases
+# %0 toward group 1 (here $vgpr258), aligning it with its neighbors so no extra
+# mode change is required. Running the full greedy+rewrite+lowering sequence,
+# this reduces the S_SET_VGPR_MSB count from 3 to 1.
+
+# NOHINT: V_CEIL_F32_e32 killed $vgpr0,
+# HINT:   V_CEIL_F32_e32 killed $vgpr258,
+
+--- |
+  define amdgpu_kernel void @msb_group_hint() #0 { ret void }
+  ; A low flat-work-group-size raises the per-wave VGPR budget so that group-1
+  ; registers (v256+) are allocatable.
+  attributes #0 = { "amdgpu-flat-work-group-size"="1,256" }
+...
+---
+name:            msb_group_hint
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $vgpr256
+    %0:vgpr_32 = V_MOV_B32_e32 1, implicit $exec
+    $vgpr257 = nofpexcept V_CEIL_F32_e32 $vgpr256, implicit $mode, implicit $exec
+    $vgpr257 = nofpexcept V_CEIL_F32_e32 %0, implicit $mode, implicit $exec
+    $vgpr257 = nofpexcept V_CEIL_F32_e32 $vgpr256, implicit $mode, implicit $exec
+    S_ENDPGM 0, implicit $vgpr257
+...

@@ -1822,3 +1822,41 @@ AMDGPUOptimizeVGPREncodingPass::run(MachineFunction &MF,
   PA.preserve<LiveRegMatrixAnalysis>();
   return PA;
 }
+
+void llvm::AMDGPU::collectMSBGroupHints(
+    const MachineFunction &MF, DenseMap<Register, MSBGroupHints> &Out) {
+  const MachineRegisterInfo &MRI = MF.getRegInfo();
+  const unsigned NumVirtRegs = MRI.getNumVirtRegs();
+  BitVector OptVirtRegs(NumVirtRegs), Pinned(NumVirtRegs);
+
+  // Reuse the pass's structural MODE-usage model, which is derived purely from
+  // instruction operands and therefore valid before register assignment.
+  for (const MachineBasicBlock &MBB : MF) {
+    MBBModeUsage Usage(MBB, OptVirtRegs, Pinned);
+    ArrayRef<ModeInstr> Instrs = Usage.getInstructions();
+    for (const ModeInstr &MI : Instrs) {
+      for (OprdType Oprd : seq(NumOprdTypes)) {
+        Register Reg = MI.Oprds[Oprd];
+        if (!Reg || !Reg.isVirtual())
+          continue;
+        MSBGroupHints &H = Out[Reg];
+
+        // The previous/next instruction using this same dial is a neighbor; a
+        // missing one means we border a block boundary (default-group pin).
+        if (MI.Prev[Oprd] == ModeInstr::NoIdx)
+          ++H.DefaultGroupVotes;
+        else
+          H.Neighbors.push_back(Instrs[MI.Prev[Oprd]].Oprds[Oprd]);
+
+        if (MI.Next[Oprd] == ModeInstr::NoIdx)
+          ++H.DefaultGroupVotes;
+        else
+          H.Neighbors.push_back(Instrs[MI.Next[Oprd]].Oprds[Oprd]);
+      }
+    }
+  }
+
+  // Record which collected virtual registers are pinned.
+  for (auto &KV : Out)
+    KV.second.Pinned = Pinned.test(KV.first.virtRegIndex());
+}

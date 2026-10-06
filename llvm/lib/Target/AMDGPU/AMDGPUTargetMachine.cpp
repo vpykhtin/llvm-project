@@ -518,6 +518,12 @@ static cl::opt<bool> EnableRegReassign(
   cl::init(true),
   cl::Hidden);
 
+// Temporary measurement knob: toggle the post-RA VGPR MSB-group optimization
+// pass so its contribution can be measured independently.
+static cl::opt<bool> EnableOptVGPREncoding(
+    "amdgpu-enable-vgpr-encoding-opt", cl::init(true), cl::Hidden,
+    cl::desc("Run the post-RA VGPR MSB-group optimization pass"));
+
 static cl::opt<bool> OptVGPRLiveRange(
     "amdgpu-opt-vgpr-liverange",
     cl::desc("Enable VGPR liverange optimizations for if-else structure"),
@@ -1894,7 +1900,8 @@ bool GCNPassConfig::addPreRewrite() {
     addPass(&GCNNSAReassignID);
 
   addPass(&AMDGPURewriteAGPRCopyMFMALegacyID);
-  addPass(&SIAMDGPUOptimizeVGPREncodingLegacyID);
+  if (EnableOptVGPREncoding)
+    addPass(&SIAMDGPUOptimizeVGPREncodingLegacyID);
   return true;
 }
 

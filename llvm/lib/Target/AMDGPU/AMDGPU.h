@@ -606,6 +606,10 @@ extern char &AMDGPULowerVGPREncodingLegacyID;
 void initializeAMDGPUOptimizeVGPREncodingLegacyPass(PassRegistry &);
 extern char &SIAMDGPUOptimizeVGPREncodingLegacyID;
 
+void initializeAMDGPUVGPRMSBAffinityLegacyPass(PassRegistry &);
+extern char &AMDGPUVGPRMSBAffinityLegacyID;
+FunctionPass *createAMDGPUVGPRMSBAffinityLegacyPass();
+
 void initializeSIInsertHardClausesLegacyPass(PassRegistry &);
 extern char &SIInsertHardClausesID;
 

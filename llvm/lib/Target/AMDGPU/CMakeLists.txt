@@ -91,6 +91,7 @@ add_llvm_target(AMDGPUCodeGen
   AMDGPUIGroupLP.cpp
   AMDGPULowerVGPREncoding.cpp
   AMDGPUOptimizeVGPREncoding.cpp
+  AMDGPUVGPRMSBAffinity.cpp
   AMDGPUMCResourceInfo.cpp
   AMDGPUMarkLastScratchLoad.cpp
   AMDGPUMIRFormatter.cpp

@@ -30,6 +30,7 @@
 #include "AMDGPUMacroFusion.h"
 #include "AMDGPUNextUseAnalysis.h"
 #include "AMDGPUOptimizeVGPREncoding.h"
+#include "AMDGPUVGPRMSBAffinity.h"
 #include "AMDGPUPerfHintAnalysis.h"
 #include "AMDGPUPreloadKernArgProlog.h"
 #include "AMDGPUPrepareAGPRAlloc.h"
@@ -717,6 +718,7 @@ extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAMDGPUTarget() {
   initializeSIShrinkInstructionsLegacyPass(*PR);
   initializeSIOptimizeExecMaskingPreRALegacyPass(*PR);
   initializeAMDGPUOptimizeVGPREncodingLegacyPass(*PR);
+  initializeAMDGPUVGPRMSBAffinityLegacyPass(*PR);
   initializeSIOptimizeVGPRLiveRangeLegacyPass(*PR);
   initializeAMDGPUNextUseAnalysisLegacyPassPass(*PR);
   initializeAMDGPUNextUseAnalysisPrinterLegacyPassPass(*PR);
@@ -1989,6 +1991,10 @@ bool GCNPassConfig::addRegAssignAndRewriteOptimized() {
     reportFatalUsageError(RegAllocOptNotSupportedMessage);
 
   addPass(&GCNPreRALongBranchRegID);
+
+  // Bias VGPR allocation into MSB groups (after the scheduler fixes the order,
+  // before RA).
+  addPass(createAMDGPUVGPRMSBAffinityLegacyPass());
 
   addPass(createSGPRAllocPass(true));
 
